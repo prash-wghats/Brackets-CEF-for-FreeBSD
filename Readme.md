@@ -1,1 +1,1 @@
-## CEF (Chromium Embedded Framework) for FreeBSD
+## Brackets editor, CEF (Chromium Embedded Framework) for FreeBSD

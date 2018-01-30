@@ -1,0 +1,850 @@
+diff --git a/.gitignore b/.gitignore
+index c7580fb..669b8f5 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -41,6 +41,8 @@ ipch
+ /libcef_dll
+ /out
+ tools
++/node
++/node_modules
+ 
+ /installer/mac/staging/
+ /installer/linux/*.deb
+@@ -60,3 +62,4 @@ appshell/gtk
+ appshell/gtk/*
+ 
+ appshell/node-core/node_modules
++.gitignore
+\ No newline at end of file
+diff --git a/Gruntfile.js b/Gruntfile.js
+index 3335e06..3c674cf 100644
+--- a/Gruntfile.js
++++ b/Gruntfile.js
+@@ -40,12 +40,25 @@ module.exports = function (grunt) {
+     if (platform === "linux") {
+         cef_version = "3.2785.1486";
+     }
++    
++    if (platform === "freebsd") {
++        cef_version = "3.2704.1434.gec3e9ed";
++    }
+ 
+     grunt.initConfig({
+         "pkg":              grunt.file.readJSON("package.json"),
+         "config-json":      staging + "/www/config.json",
+         "downloads":        grunt.option("downloads") || "downloads",
+         "curl-dir": {
++			/* freebsd */
++			"cef-freebsd64": {
++                "dest"      : "<%= downloads %>",
++                "src"       : "https://github.com/prash-wghats/Brackets-CEF-for-FreeBSD/releases/download/CEF_v2704/cef_binary_<%= cef.version %>_freebsd64.zip"
++            },
++            "node-freebsd64": {
++                "dest"      : "<%= downloads %>",
++                "src"       : "https://github.com/prash-wghats/Brackets-CEF-For-FreeBSD/releases/download/Brackets_v1.11/node-v<%= node.version %>-freebsd-x64.tar.gz"
++            },
+             /* linux */
+             "cef-linux32": {
+                 "dest"      : "<%= downloads %>",
+@@ -333,4 +346,4 @@ module.exports = function (grunt) {
+     grunt.loadNpmTasks("grunt-curl");
+ 
+     grunt.registerTask("default", ["setup", "build"]);
+-};
+\ No newline at end of file
++};
+diff --git a/appshell.gyp b/appshell.gyp
+index 3665571..b7ed8fc 100755
+--- a/appshell.gyp
++++ b/appshell.gyp
+@@ -366,6 +366,9 @@
+             '<!@(<(pkg-config) --cflags gtk+-2.0 gthread-2.0)',
+             '<(march)',
+           ],
++          'cflags_cc': [
++            '-std=c++11  -Wno-inconsistent-missing-override -Wreturn-type',
++          ],
+           'include_dirs': [
+             '.',
+           ],
+@@ -391,7 +394,6 @@
+                 'Resources/devtools_resources.pak',
+                 'Resources/icudtl.dat',
+                 'Resources/locales/',
+-                '$(BUILDTYPE)/chrome-sandbox',
+                 '$(BUILDTYPE)/libcef.so',
+                 '$(BUILDTYPE)/natives_blob.bin',
+                 '$(BUILDTYPE)/snapshot_blob.bin',
+@@ -420,15 +422,27 @@
+               '-Wl,-rpath,\$$ORIGIN/',
+               '<(march)'
+             ],
+-            'libraries': [
+-              "$(BUILDTYPE)/libcef.so",
+-              "-lX11",
+-              'appshell_extensions_js.o',
+-              'deps/icu/lib/libicuuc.a',
+-              'deps/icu/lib/libicuio.a',
+-              'deps/icu/lib/libicui18n.a',
+-              'deps/icu/lib/libicudata.a',
+-              '-ldl',
++            'conditions': [
++              ['OS!="freebsd"', {
++                'libraries': [
++                  "$(BUILDTYPE)/libcef.so",
++                  "-lX11",
++                  'appshell_extensions_js.o',
++                  'deps/icu/lib/libicuuc.a',
++                  'deps/icu/lib/libicuio.a',
++                  'deps/icu/lib/libicui18n.a',
++                  'deps/icu/lib/libicudata.a',
++                  '-ldl',
++                ],
++              }],
++              ['OS=="freebsd"', {
++                'libraries': [
++                  "$(BUILDTYPE)/libcef.so",
++                  "-lX11",
++                  'appshell_extensions_js.o',
++                  '-l:libicuuc.a -l:libicuio.a -l:libicui18n.a -l:libicudata.a'
++                ],
++              }],
+             ],
+           },
+           'sources': [
+@@ -469,9 +483,12 @@
+         'GCC_VERSION': 'com.apple.compilers.llvm.clang.1_0',
+       },
+       'conditions': [
+-        ['OS=="linux"', {
++        ['OS=="linux" or OS=="freebsd"', {
+           'cflags': [
+             '<(march)',
++          ],
++           'cflags_cc': [
++            '-std=c++11  -Wno-inconsistent-missing-override -Wreturn-type',
+           ],
+           'default_configuration': 'Release',
+           'configurations': {
+@@ -625,7 +642,13 @@
+       'variables': {
+         'output_bfd': '<!(uname -m | sed "s/x86_64/elf64-x86-64/;s/i.86/elf32-i386/")',
+         'march': ' ',
+-      },
++      },   
++    }],
++    ['target_arch=="environment" and OS=="freebsd"', {
++      'variables': {
++        'output_bfd': 'elf64-x86-64',
++        'march': '-m64',
++      },     
+     }],
+   ],
+-}
+\ No newline at end of file
++}
+diff --git a/appshell/appshell_extensions.cpp b/appshell/appshell_extensions.cpp
+index 38a44ac..df699aa 100644
+--- a/appshell/appshell_extensions.cpp
++++ b/appshell/appshell_extensions.cpp
+@@ -28,7 +28,7 @@
+ #include "appshell_node_process.h"
+ #include "config.h"
+ 
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "appshell/browser/main_context.h"
+ #include "appshell/browser/root_window_manager.h"
+ #endif
+@@ -401,11 +401,11 @@ public:
+ 
+             #if defined(OS_WIN)
+                 wi.SetAsPopup(NULL, "DevTools");
+-            #elif defined(OS_LINUX)
++            #elif defined(OS_LINUX) || defined(OS_BSD)
+                 handler->ShowDevTools(browser, CefPoint());
+             #endif
+ 
+-            #ifndef OS_LINUX
++            #if !defined(OS_LINUX) && !defined(OS_BSD)
+                 browser->GetHost()->ShowDevTools(wi, browser->GetHost()->GetClient(), settings, CefPoint());
+             #endif
+ 
+@@ -433,7 +433,7 @@ public:
+ 
+             // The DispatchCloseToNextBrowser() call initiates a quit sequence. The app will
+             // quit if all browser windows are closed.
+-            #ifdef OS_LINUX
++            #if defined(OS_LINUX) || defined(OS_BSD)
+                 if(client::MainContext::Get() && 
+                     client::MainContext::Get()->GetRootWindowManager()){
+                     client::MainContext::Get()->GetRootWindowManager()->DispatchCloseToNextWindow();
+diff --git a/appshell/appshell_extensions_gtk.cpp b/appshell/appshell_extensions_gtk.cpp
+index f101c51..e5e822d 100644
+--- a/appshell/appshell_extensions_gtk.cpp
++++ b/appshell/appshell_extensions_gtk.cpp
+@@ -60,8 +60,14 @@
+ #include <sys/utsname.h>
+ 
+ #include <sys/types.h>
++#if defined (OS_LINUX)
+ #include <linux/if.h>
+ #include <linux/sockios.h>
++#else
++#include <net/if.h>
++#include <netinet/in.h>
++#include <net/if_dl.h>
++#endif
+ #include <sys/ioctl.h>
+ #include "appshell_helpers.h"
+ 
+@@ -378,6 +384,7 @@ int Rename(ExtensionString oldName, ExtensionString newName)
+     if (rename(oldName.c_str(), newNameStr) == -1) {
+         return ConvertLinuxErrorCode(errno);
+     }
++    return 0;
+ }
+ 
+ int GetFileInfo(ExtensionString filename, uint32& modtime, bool& isDir, double& size, ExtensionString& realPath)
+@@ -791,6 +798,7 @@ int ConvertGnomeErrorCode(GError* gerror, bool isReading)
+             return ERR_UNKNOWN;
+         }
+     }
++    return NO_ERROR;
+ }
+ 
+ int ConvertLinuxErrorCode(int errorCode, bool isReading)
+@@ -835,6 +843,7 @@ int32 CopyFile(ExtensionString src, ExtensionString dest)
+ 
+ int32 GetPendingFilesToOpen(ExtensionString& files)
+ {
++	return 0;
+ }
+ 
+ static GtkWidget* GetMenuBar(CefRefPtr<CefBrowser> browser)
+@@ -1229,6 +1238,7 @@ void GetMacHash( u16& mac1, u16& mac2 )
+ 
+         if ( ioctl( sock, SIOCGIFFLAGS, ifr ))
+             continue;  // failed to get flags, skip it
++#if defined(OS_LINUX)
+         if ( ioctl( sock, SIOCGIFHWADDR, ifr ) == 0 )
+         {
+             if ( !foundMac1 )
+@@ -1240,6 +1250,21 @@ void GetMacHash( u16& mac1, u16& mac2 )
+                 break;
+             }
+         }
++#else
++		struct sockaddr_dl *cl = (struct sockaddr_dl *)&(ifr->ifr_addr);
++		unsigned char *p = (unsigned char *)LLADDR(cl);
++		if ( p != NULL)
++		{
++			if ( !foundMac1 )
++            {
++                foundMac1 = true;
++                mac1 = HashMacAddress( (u8*)(p));
++            } else {
++                mac2 = HashMacAddress( (u8*)(p));
++                break;
++            }
++        }
++#endif
+     }
+ 
+     close( sock );
+diff --git a/appshell/appshell_extensions_platform.cpp b/appshell/appshell_extensions_platform.cpp
+index 943b003..c83a879 100644
+--- a/appshell/appshell_extensions_platform.cpp
++++ b/appshell/appshell_extensions_platform.cpp
+@@ -1,9 +1,10 @@
+ #include "appshell/appshell_extensions_platform.h"
+ #include <unicode/ucsdet.h>
+ #include <unicode/ucnv.h>
++#include <unicode/unistr.h>
+ #include <fstream>
+ 
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "appshell/browser/main_context.h"
+ #include "appshell/browser/root_window_manager.h"
+ #include "appshell/browser/root_window_gtk.h"
+@@ -77,7 +78,7 @@ void CharSetEncode::operator()(std::string &contents) {
+     contents.assign(target.get(), targetLen);
+ }
+ 
+-#if defined(OS_MACOSX) || defined(OS_LINUX)
++#if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_BSD)
+ void DecodeContents(std::string &contents, const std::string& encoding) {
+     UnicodeString ustr(contents.c_str(), encoding.c_str());
+     UErrorCode status = U_ZERO_ERROR;
+@@ -125,7 +126,7 @@ void CheckForUTF8BOM(const std::string& filename, bool& preserveBOM) {
+ 	}
+ }
+ 
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+ // The following routine will get the containing GTK root window, for a browser.
+ scoped_refptr<client::RootWindowGtk> getRootGtkWindow(CefRefPtr<CefBrowser> browser)
+ {
+diff --git a/appshell/appshell_extensions_platform.h b/appshell/appshell_extensions_platform.h
+index b2cea7b..5a32858 100644
+--- a/appshell/appshell_extensions_platform.h
++++ b/appshell/appshell_extensions_platform.h
+@@ -30,8 +30,9 @@
+ 
+ #include "config.h"
+ #include <unicode/ucsdet.h>
++#include <unicode/ucnv.h>
+ 
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include <gtk/gtk.h>
+ #endif
+ 
+@@ -108,7 +109,7 @@ public:
+     void operator()(std::string &contents);
+ };
+ 
+-#if defined(OS_MACOSX) || defined(OS_LINUX)
++#if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_BSD)
+ void DecodeContents(std::string &contents, const std::string& encoding);
+ #endif
+ 
+diff --git a/appshell/appshell_helpers.h b/appshell/appshell_helpers.h
+index 671f5cc..76edb93 100644
+--- a/appshell/appshell_helpers.h
++++ b/appshell/appshell_helpers.h
+@@ -46,7 +46,7 @@ CefString AppGetProductVersionString();
+ // Returns a string containing "Chrome/" appends with its version (e.g. "Chrome/29.0.1547.65")
+ CefString AppGetChromiumVersionString();
+ 
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+ 
+ char* AppInitWorkingDirectory();
+ std::string AppGetWorkingDirectory();
+diff --git a/appshell/appshell_helpers_gtk.cpp b/appshell/appshell_helpers_gtk.cpp
+index 8b2e51c..a842c3d 100644
+--- a/appshell/appshell_helpers_gtk.cpp
++++ b/appshell/appshell_helpers_gtk.cpp
+@@ -36,6 +36,10 @@
+ //#include <ShlObj.h>
+ #include <glib.h>
+ #include <sys/stat.h>
++#if defined(__FreeBSD__)
++#include <sys/types.h>
++#include <sys/sysctl.h>
++#endif
+ 
+ extern time_t g_appStartupTime;
+ extern char _binary_appshell_appshell_extensions_js_start;
+@@ -142,7 +146,22 @@ std::string AppGetRunningDirectory() {
+         return szRunningDir;
+ 
+     char buf[512];
++#if defined(__FreeBSD__)
++    int mib[4];
++    int len = -1;
++    mib[0] = CTL_KERN;
++    mib[1] = KERN_PROC;
++    mib[2] = KERN_PROC_PATHNAME;
++    mib[3] = -1;
++    size_t cb = sizeof(buf);
++    
++    if (sysctl(mib, 4, buf, &cb, NULL, 0) == -1) {
++        len = -1;
++    } else
++		len = strlen(buf);
++#else
+     int len = readlink("/proc/self/exe", buf, 512);
++#endif
+ 
+     if(len < 0)
+         return AppGetWorkingDirectory();  //# Well, can't think of any real-world case where this would be happen
+@@ -154,6 +173,7 @@ std::string AppGetRunningDirectory() {
+             return szRunningDir;
+         }
+     }
++    return AppGetWorkingDirectory();
+ }
+ 
+ bool FileExists(std::string path) {
+diff --git a/appshell/appshell_node_process_linux.cpp b/appshell/appshell_node_process_linux.cpp
+index 9eb63a0..4054e59 100644
+--- a/appshell/appshell_node_process_linux.cpp
++++ b/appshell/appshell_node_process_linux.cpp
+@@ -31,7 +31,10 @@
+ #include <string.h>
+ #include <stdlib.h>
+ #include <sys/wait.h>
+-
++#if defined(__FreeBSD__)
++#include <sys/types.h>
++#include <sys/sysctl.h>
++#endif
+ 
+ #include "config.h"
+ 
+@@ -84,11 +87,26 @@ void* nodeThread(void* unused) {
+     char nodecorePath[MAX_PATH];
+ 
+     // get path to Brackets
++#if defined(__FreeBSD__)
++    int mib[4];
++    mib[0] = CTL_KERN;
++    mib[1] = KERN_PROC;
++    mib[2] = KERN_PROC_PATHNAME;
++    mib[3] = -1;
++    size_t cb = sizeof(executablePath);
++    
++    if (sysctl(mib, 4, executablePath, &cb, NULL, 0) == -1) {
++        fprintf(stderr, "cannot find Brackets path: %s\n", strerror(errno));
++        pthread_mutex_unlock(&mutex);
++        return NULL;
++    }
++#else
+     if (readlink("/proc/self/exe", executablePath, MAX_PATH) == -1) {
+         fprintf(stderr, "cannot find Brackets path: %s\n", strerror(errno));
+         pthread_mutex_unlock(&mutex);
+         return NULL;
+     }
++#endif
+ 
+     // strip off trailing executable name
+     char* lastIndexOf = strrchr(executablePath, '/');
+@@ -177,6 +195,7 @@ void* nodeReadThread(void* unused) {
+         strBuf.assign(charBuf);
+         processIncomingData(strBuf);
+     }
++    return NULL;
+ }
+ 
+ 
+diff --git a/appshell/browser/browser_window.cc b/appshell/browser/browser_window.cc
+index 40c9478..ed511a2 100644
+--- a/appshell/browser/browser_window.cc
++++ b/appshell/browser/browser_window.cc
+@@ -8,7 +8,7 @@
+ #include "appshell/browser/main_message_loop.h"
+ 
+ // Brackets specific change
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "appshell/command_callbacks.h"
+ #include "appshell/native_menu_model.h"
+ #endif
+@@ -94,7 +94,7 @@ void BrowserWindow::OnSetDraggableRegions(
+   delegate_->OnSetDraggableRegions(regions);
+ }
+ 
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+ // Brackets specific change.
+ // The following is usually called in the multi window workflows.
+ // Once a window is done processing the "QuitApplication" command, 
+diff --git a/appshell/browser/browser_window.h b/appshell/browser/browser_window.h
+index 37a035f..4bbdc44 100644
+--- a/appshell/browser/browser_window.h
++++ b/appshell/browser/browser_window.h
+@@ -100,7 +100,7 @@ class BrowserWindow : public ClientHandler::Delegate {
+   bool IsClosing() const;
+ 
+   // Brackets specific change.
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+   void DispatchCloseToBrowser(CefRefPtr<CefBrowser> browser) ;
+   void DispatchCommandToBrowser(CefRefPtr<CefBrowser> browser, int tag);
+ #endif
+diff --git a/appshell/browser/browser_window_std_gtk.cc b/appshell/browser/browser_window_std_gtk.cc
+index 326b660..79b80b3 100644
+--- a/appshell/browser/browser_window_std_gtk.cc
++++ b/appshell/browser/browser_window_std_gtk.cc
+@@ -181,7 +181,7 @@ ClientWindowHandle BrowserWindowStdGtk::GetWindowHandle() const {
+ 
+   // There is no GtkWidget* representation of this object.
+   NOTREACHED();
+-  return NULL;
++  return  0;
+ }
+ 
+ 
+diff --git a/appshell/browser/client_app_delegates_browser.cc b/appshell/browser/client_app_delegates_browser.cc
+index 03f0ba0..167c2d3 100644
+--- a/appshell/browser/client_app_delegates_browser.cc
++++ b/appshell/browser/client_app_delegates_browser.cc
+@@ -4,7 +4,7 @@
+ 
+ #include "appshell/browser/client_app_browser.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "appshell/browser/print_handler_gtk.h"
+ #endif
+ 
+@@ -16,7 +16,7 @@ void ClientAppBrowser::CreateDelegates(DelegateSet& delegates) {
+ 
+ // static
+ CefRefPtr<CefPrintHandler> ClientAppBrowser::CreatePrintHandler() {
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   return new ClientPrintHandlerGtk();
+ #else
+   return NULL;
+diff --git a/appshell/browser/client_handler.cc b/appshell/browser/client_handler.cc
+index ac8fc66..1e82057 100644
+--- a/appshell/browser/client_handler.cc
++++ b/appshell/browser/client_handler.cc
+@@ -21,7 +21,7 @@
+ #include "appshell/common/client_switches.h"
+ 
+ // Brackets specific change.
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "appshell/appshell_extensions.h"
+ #endif
+ 
+@@ -147,7 +147,7 @@ ClientHandler::ClientHandler(Delegate* delegate,
+     focus_on_editable_field_(false) {
+   DCHECK(!console_log_file_.empty());
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // Provide the GTK-based dialog implementation on Linux.
+   dialog_handler_ = new ClientDialogHandlerGtk();
+ #endif
+@@ -194,7 +194,7 @@ bool ClientHandler::OnProcessMessageReceived(
+     return true;
+   }
+ 
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // Give an opportunity to the base class. brackets/appshell specific change.
+   return _parent::OnProcessMessageReceived(browser, source_process, message);
+ #else
+diff --git a/appshell/browser/client_handler.h b/appshell/browser/client_handler.h
+index b3363a1..45dc7c1 100644
+--- a/appshell/browser/client_handler.h
++++ b/appshell/browser/client_handler.h
+@@ -15,7 +15,7 @@
+ #include "include/wrapper/cef_resource_manager.h"
+ #include "appshell/browser/client_types.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "appshell/browser/dialog_handler_gtk.h"
+ // Brackets specific change.
+ #include "appshell/client_handler.h"
+@@ -31,7 +31,7 @@ namespace client {
+ // On Linux we are going to be using this client handler instead of
+ // appshell/ClientHandler.
+ class ClientHandler : 
+-                  #ifdef OS_LINUX
++                  #if defined(OS_LINUX) || defined(OS_BSD)
+                       public ::ClientHandler,
+                       public CefDownloadHandler {
+                   #else
+@@ -128,7 +128,7 @@ class ClientHandler :
+                                 CefProcessId source_process,
+                                 CefRefPtr<CefProcessMessage> message) OVERRIDE;
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   CefRefPtr<CefDialogHandler> GetDialogHandler() OVERRIDE {
+     return dialog_handler_;
+   }
+@@ -322,7 +322,7 @@ class ClientHandler :
+   // True if mouse cursor change is disabled.
+   bool mouse_cursor_change_disabled_;
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // Custom dialog handler for GTK.
+   CefRefPtr<ClientDialogHandlerGtk> dialog_handler_;
+ #endif
+diff --git a/appshell/browser/client_types.h b/appshell/browser/client_types.h
+index f228f4e..da926d9 100644
+--- a/appshell/browser/client_types.h
++++ b/appshell/browser/client_types.h
+@@ -8,7 +8,7 @@
+ 
+ #include "include/cef_base.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include <gtk/gtk.h>
+ 
+ // The Linux client uses GTK instead of the underlying platform type (X11).
+diff --git a/appshell/browser/root_window.h b/appshell/browser/root_window.h
+index 47af078..520b265 100644
+--- a/appshell/browser/root_window.h
++++ b/appshell/browser/root_window.h
+@@ -117,7 +117,7 @@ class RootWindow :
+   // Returns the native handle for this window, if any.
+   virtual ClientWindowHandle GetWindowHandle() const = 0;
+ 
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // Brackets specific: Dispatches close command to the next browser window.
+   virtual void DispatchCloseToBrowser(CefRefPtr<CefBrowser> browser) = 0;
+ #endif
+diff --git a/appshell/browser/root_window_gtk.cc b/appshell/browser/root_window_gtk.cc
+index d566bbd..2990ef2 100644
+--- a/appshell/browser/root_window_gtk.cc
++++ b/appshell/browser/root_window_gtk.cc
+@@ -608,6 +608,7 @@ gboolean RootWindowGtk::MenuItemActivated(GtkWidget* widget,
+   int tag = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), kMenuIdKey));
+   if (self && self->browser_window_)
+     self->browser_window_->DispatchCommandToBrowser(self->GetBrowser(), tag);
++  return true;
+ }
+ 
+ // static
+diff --git a/appshell/browser/temp_window.h b/appshell/browser/temp_window.h
+index 2064398..565c348 100644
+--- a/appshell/browser/temp_window.h
++++ b/appshell/browser/temp_window.h
+@@ -10,7 +10,7 @@
+ 
+ #if defined(OS_WIN)
+ #include "appshell/browser/temp_window_win.h"
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ #include "appshell/browser/temp_window_x11.h"
+ #elif defined(OS_MACOSX)
+ #include "appshell/browser/temp_window_mac.h"
+@@ -20,7 +20,7 @@ namespace client {
+ 
+ #if defined(OS_WIN)
+ typedef TempWindowWin TempWindow;
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ typedef TempWindowX11 TempWindow;
+ #elif defined(OS_MACOSX)
+ typedef TempWindowMac TempWindow;
+diff --git a/appshell/cefclient.cpp b/appshell/cefclient.cpp
+index 7277740..eba9fc3 100644
+--- a/appshell/cefclient.cpp
++++ b/appshell/cefclient.cpp
+@@ -28,7 +28,7 @@ CefRefPtr<CefBrowser> AppGetBrowser() {
+ 
+ CefWindowHandle AppGetMainHwnd() {
+   if (!g_handler.get())
+-    return NULL;
++    return 0;
+   return g_handler->GetMainHwnd();
+ }
+ 
+diff --git a/appshell/cefclient_gtk.cc b/appshell/cefclient_gtk.cc
+index e4304db..346a6b0 100644
+--- a/appshell/cefclient_gtk.cc
++++ b/appshell/cefclient_gtk.cc
+@@ -63,6 +63,7 @@ static gboolean HandleQuit(int signatl) {
+     return TRUE;
+   }
+   destroy();
++  return FALSE;
+ }
+ 
+ // Global functions
+diff --git a/appshell/client_handler.cpp b/appshell/client_handler.cpp
+index 9add38a..e02b636 100644
+--- a/appshell/client_handler.cpp
++++ b/appshell/client_handler.cpp
+@@ -24,13 +24,13 @@ enum client_menu_ids {
+ ClientHandler::BrowserWindowMap ClientHandler::browser_window_map_;
+ 
+ ClientHandler::ClientHandler()
+-  : m_MainHwnd(NULL),
++  : m_MainHwnd(0),
+     m_BrowserId(0),
+-    m_EditHwnd(NULL),
+-    m_BackHwnd(NULL),
+-    m_ForwardHwnd(NULL),
+-    m_StopHwnd(NULL),
+-    m_ReloadHwnd(NULL),
++    m_EditHwnd(0),
++    m_BackHwnd(0),
++    m_ForwardHwnd(0),
++    m_StopHwnd(0),
++    m_ReloadHwnd(0),
+     m_bFormElementHasFocus(false),
+     m_quitting(false) {
+   callbackId = 0;
+@@ -69,7 +69,7 @@ bool ClientHandler::OnProcessMessageReceived(
+   return handled;
+ }
+ 
+-#ifndef OS_LINUX
++#if !defined(OS_LINUX) && !defined(OS_BSD) 
+ 
+ // CefWIndowInfo.height/.width aren't impelemented on Linux for some reason
+ //  we'll want to revisit this when we integrate the next version of CEF
+@@ -119,7 +119,7 @@ bool ClientHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
+                            CefRefPtr<CefClient>& client,
+                            CefBrowserSettings& settings,
+                            bool* no_javascript_access){
+-#ifndef OS_LINUX
++#if !defined(OS_LINUX) && !defined(OS_BSD) 
+     std::string address = target_url.ToString();
+     std::string url;
+     std::string params;
+diff --git a/appshell/common/client_app.cc b/appshell/common/client_app.cc
+index 662e2b6..fe76ce6 100644
+--- a/appshell/common/client_app.cc
++++ b/appshell/common/client_app.cc
+@@ -13,7 +13,7 @@ namespace {
+ // These flags must match the Chromium values.
+ const char kProcessType[] = "type";
+ const char kRendererProcess[] = "renderer";
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ const char kZygoteProcess[] = "zygote";
+ #endif
+ 
+@@ -33,7 +33,7 @@ ClientApp::ProcessType ClientApp::GetProcessType(
+   const std::string& process_type = command_line->GetSwitchValue(kProcessType);
+   if (process_type == kRendererProcess)
+     return RendererProcess;
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   else if (process_type == kZygoteProcess)
+     return ZygoteProcess;
+ #endif
+diff --git a/appshell/browser/resource_util_linux.cc b/appshell/browser/resource_util_linux.cc
+index b7bc4b0..f905437 100644
+--- a/appshell/browser/resource_util_linux.cc
++++ b/appshell/browser/resource_util_linux.cc
+@@ -8,6 +8,10 @@
+ #include <stdio.h>
+ #include <string.h>
+ #include <unistd.h>
++#if defined(__FreeBSD__)
++#include <sys/types.h>
++#include <sys/sysctl.h>
++#endif
+ 
+ namespace client {
+ 
+@@ -15,7 +19,22 @@ bool GetResourceDir(std::string& dir) {
+   char buff[1024];
+ 
+   // Retrieve the executable path.
++#if defined(__FreeBSD__)
++      int mib[4];
++      ssize_t len = -1;
++      mib[0] = CTL_KERN;
++      mib[1] = KERN_PROC;
++      mib[2] = KERN_PROC_PATHNAME;
++      mib[3] = -1;
++      size_t cb = sizeof(buff);
++      
++      if (sysctl(mib, 4, buff, &cb, NULL, 0) == -1) {
++          len = -1;
++      } else
++  		len = strlen(buff);
++ #else
+   ssize_t len = readlink("/proc/self/exe", buff, sizeof(buff)-1);
++ #endif
+   if (len == -1)
+     return false;
+ 
+diff --git a/appshell/config.h b/appshell/config.h
+index 2e1d5d3..0a87dc0 100644
+--- a/appshell/config.h
++++ b/appshell/config.h
+@@ -37,6 +37,10 @@
+ #ifndef OS_LINUX
+ #define OS_LINUX 1
+ #endif
++#elif defined(__FreeBSD__)
++#ifndef OS_BSD
++#define OS_BSD 1
++#endif
+ #else
+ #error Please add support for your platform in config.h
+ #endif
+@@ -70,7 +74,7 @@
+ #define NODE_CORE_PATH @"/Contents/node-core"
+ 
+ #endif
+-#ifdef OS_LINUX
++#if defined(OS_LINUX) || defined(OS_BSD)
+ // TODO linux preferences
+ //#define GROUP_NAME @""
+ #define APP_NAME "Brackets"
+diff --git a/tasks/build.js b/tasks/build.js
+index d1ca204..f5bd7a3 100644
+--- a/tasks/build.js
++++ b/tasks/build.js
+@@ -104,7 +104,19 @@ module.exports = function (grunt) {
+             done(false);
+         });
+     });
++    
++    // task: build-freebsd
++    grunt.registerTask("build-freebsd", "Build freebsd shell", function () {
++        var done = this.async();
+ 
++        spawn("gmake").then(function () {
++            done();
++        }, function (err) {
++            grunt.log.error(err);
++            done(false);
++        });
++    });
++    
+     // task: git
+     grunt.registerMultiTask("git", "Pull specified repo branch from origin", function () {
+         var repo = this.data.repo;
+diff --git a/tasks/common.js b/tasks/common.js
+index f095651..e109d3b 100644
+--- a/tasks/common.js
++++ b/tasks/common.js
+@@ -225,6 +225,8 @@ module.exports = function (grunt) {
+                 _platform = "mac";
+             } else if (process.platform === "win32") {
+                 _platform = "win";
++            } else if (process.platform === "freebsd") {
++                _platform = "freebsd";
+             } else {
+                 _platform = "linux";
+             }
+@@ -234,7 +236,7 @@ module.exports = function (grunt) {
+     }
+     
+     function arch() {
+-        if (platform() === "linux") {
++        if (platform() === "linux" || platform() === "freebsd") {
+             if (process.arch === "x64") {
+                 return 64;
+             } else {
+diff --git a/tasks/setup.js b/tasks/setup.js
+index 381fe2f..362c73f 100644
+--- a/tasks/setup.js
++++ b/tasks/setup.js
+@@ -639,6 +639,8 @@ module.exports = function (grunt) {
+ 
+     // task: node-linux
+     grunt.registerTask("node-linux", ["node-mac"]);
++    // task: node-freebsd
++    grunt.registerTask("node-freebsd", ["node-mac"]);
+ 
+     // task: node-clean
+     grunt.registerTask("node-clean", "Removes Node.js binaries", function () {
+@@ -651,7 +653,7 @@ module.exports = function (grunt) {
+             promise,
+             gypCommand;
+ 
+-        if (platform === "linux") {
++        if (platform === "linux" || platform === "freebsd") {
+             gypCommand = "bash -c 'gyp/gyp --depth=.'";
+         } else {
+             gypCommand = "bash -c 'gyp/gyp appshell.gyp -I common.gypi --depth=.'";
+@@ -688,4 +690,4 @@ module.exports = function (grunt) {
+     } else {
+         grunt.registerTask("setup", ["cef", "node", "node-check", "icu", "create-project"]);
+     }
+-};
+\ No newline at end of file
++};

@@ -1,0 +1,21 @@
+--- a/node_modules/grunt-lib-phantomjs/phantomjs/main.js	2013-04-04 20:52:29.000000000 +0400
++++ b/node_modules/grunt-lib-phantomjs/phantomjs/main.js	2018-01-28 09:42:07.212344000 +0400
+@@ -11,13 +11,15 @@
+ 'use strict';
+ 
+ var fs = require('fs');
++var system = require('system');
++var args = system.args;
+ 
+ // The temporary file used for communications.
+-var tmpfile = phantom.args[0];
++var tmpfile = args[1];
+ // The page .html file to load.
+-var url = phantom.args[1];
++var url = args[2];
+ // Extra, optionally overridable stuff.
+-var options = JSON.parse(phantom.args[2] || {});
++var options = JSON.parse(args[3] || {});
+ 
+ // Default options.
+ if (!options.timeout) { options.timeout = 5000; }
