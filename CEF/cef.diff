@@ -1,0 +1,1037 @@
+diff --git a/cef.gyp b/cef.gyp
+index f034abea..276824c7 100644
+--- a/cef.gyp
++++ b/cef.gyp
+@@ -948,7 +948,7 @@
+         '<(DEPTH)/components/components.gyp:component_updater',
+         '<(DEPTH)/components/components.gyp:content_settings_core_browser',
+         '<(DEPTH)/components/components.gyp:content_settings_core_common',
+-        '<(DEPTH)/components/components.gyp:crash_component_breakpad_to_be_deleted',
++        '<(DEPTH)/components/components.gyp:crash_component_lib',
+         '<(DEPTH)/components/components.gyp:crx_file',
+         '<(DEPTH)/components/components.gyp:data_use_measurement_core',
+         '<(DEPTH)/components/components.gyp:devtools_discovery',
+@@ -1569,11 +1569,7 @@
+             'libcef/browser/native/window_x11.h',
+           ],
+         }],
+-        ['os_posix == 1 and OS != "mac"', {
+-          'dependencies': [
+-            '<(DEPTH)/components/components.gyp:breakpad_host',
+-          ],
+-        }],
++        
+         ['cld_version==2', {
+           'dependencies': [
+             '<(DEPTH)/third_party/cld_2/cld_2.gyp:cld2_platform_impl',
+diff --git a/include/base/cef_build.h b/include/base/cef_build.h
+index 7cca8222..0229f4e3 100644
+--- a/include/base/cef_build.h
++++ b/include/base/cef_build.h
+@@ -52,13 +52,17 @@
+ #ifndef OS_LINUX
+ #define OS_LINUX 1
+ #endif
++#elif defined(__FreeBSD__)
++#ifndef OS_BSD
++#define OS_BSD 1
++#endif
+ #else
+ #error Please add support for your platform in cef_build.h
+ #endif
+ 
+ // For access to standard POSIXish features, use OS_POSIX instead of a
+ // more specific macro.
+-#if defined(OS_MACOSX) || defined(OS_LINUX)
++#if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_BSD)
+ #ifndef OS_POSIX
+ #define OS_POSIX 1
+ #endif
+diff --git a/include/cef_base.h b/include/cef_base.h
+index c9213588..25867cde 100644
+--- a/include/cef_base.h
++++ b/include/cef_base.h
+@@ -43,7 +43,7 @@
+ #include "include/internal/cef_win.h"
+ #elif defined(OS_MACOSX)
+ #include "include/internal/cef_mac.h"
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ #include "include/internal/cef_linux.h"
+ #endif
+ 
+diff --git a/include/internal/cef_types.h b/include/internal/cef_types.h
+index d459620e..959cd87a 100644
+--- a/include/internal/cef_types.h
++++ b/include/internal/cef_types.h
+@@ -42,7 +42,7 @@
+ #include "include/internal/cef_types_win.h"
+ #elif defined(OS_MACOSX)
+ #include "include/internal/cef_types_mac.h"
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ #include "include/internal/cef_types_linux.h"
+ #endif
+ 
+diff --git a/include/internal/cef_types_linux.h b/include/internal/cef_types_linux.h
+index 3fb896dd..a88333d3 100644
+--- a/include/internal/cef_types_linux.h
++++ b/include/internal/cef_types_linux.h
+@@ -34,7 +34,7 @@
+ 
+ #include "include/base/cef_build.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ 
+ typedef union _XEvent XEvent;
+ typedef struct _XDisplay XDisplay;
+diff --git a/libcef/browser/browser_main.cc b/libcef/browser/browser_main.cc
+index beea5b01..5c1385f5 100644
+--- a/libcef/browser/browser_main.cc
++++ b/libcef/browser/browser_main.cc
+@@ -48,11 +48,11 @@
+ #endif
+ #endif  // defined(USE_AURA)
+ 
+-#if defined(USE_AURA) && defined(OS_LINUX)
++#if defined(USE_AURA) && (defined(OS_LINUX) || defined(OS_BSD))
+ #include "ui/base/ime/input_method_initializer.h"
+ #endif
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "libcef/browser/printing/print_dialog_linux.h"
+ #endif
+ 
+@@ -74,7 +74,7 @@ void CefBrowserMainParts::PreMainMessageLoopStart() {
+ }
+ 
+ void CefBrowserMainParts::PreEarlyInitialization() {
+-#if defined(USE_AURA) && defined(OS_LINUX)
++#if defined(USE_AURA) && (defined(OS_LINUX) || defined(OS_BSD))
+   // TODO(linux): Consider using a real input method or
+   // views::LinuxUI::SetInstance.
+   ui::InitializeInputMethodForTesting();
+@@ -100,7 +100,7 @@ void CefBrowserMainParts::PostMainMessageLoopStart() {
+   content::WebUIControllerFactory::UnregisterFactoryForTesting(
+       content::ContentWebUIControllerFactory::GetInstance());
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   printing::PrintingContextLinux::SetCreatePrintDialogFunction(
+       &CefPrintDialogLinux::CreatePrintDialog);
+   printing::PrintingContextLinux::SetPdfPaperSizeFunction(
+diff --git a/libcef/browser/browser_platform_delegate_create.cc b/libcef/browser/browser_platform_delegate_create.cc
+index 821c08ea..526dbb36 100644
+--- a/libcef/browser/browser_platform_delegate_create.cc
++++ b/libcef/browser/browser_platform_delegate_create.cc
+@@ -14,7 +14,7 @@
+ #elif defined(OS_MACOSX)
+ #include "libcef/browser/native/browser_platform_delegate_native_mac.h"
+ #include "libcef/browser/osr/browser_platform_delegate_osr_mac.h"
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ #include "libcef/browser/native/browser_platform_delegate_native_linux.h"
+ #include "libcef/browser/osr/browser_platform_delegate_osr_linux.h"
+ #else
+@@ -33,7 +33,7 @@ std::unique_ptr<CefBrowserPlatformDelegateNative> CreateNativeDelegate(
+   return make_scoped_ptr(new CefBrowserPlatformDelegateNativeWin(window_info));
+ #elif defined(OS_MACOSX)
+   return make_scoped_ptr(new CefBrowserPlatformDelegateNativeMac(window_info));
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+   return make_scoped_ptr(
+       new CefBrowserPlatformDelegateNativeLinux(window_info));
+ #endif
+@@ -47,7 +47,7 @@ std::unique_ptr<CefBrowserPlatformDelegateOsr> CreateOSRDelegate(
+ #elif defined(OS_MACOSX)
+   return make_scoped_ptr(
+         new CefBrowserPlatformDelegateOsrMac(std::move(native_delegate)));
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+   return make_scoped_ptr(
+         new CefBrowserPlatformDelegateOsrLinux(std::move(native_delegate)));
+ #endif
+diff --git a/libcef/browser/content_browser_client.cc b/libcef/browser/content_browser_client.cc
+index 87992007..446ca5d5 100644
+--- a/libcef/browser/content_browser_client.cc
++++ b/libcef/browser/content_browser_client.cc
+@@ -294,7 +294,9 @@ breakpad::CrashHandlerHostLinux* CreateCrashHandlerHost(
+ }
+ 
+ int GetCrashSignalFD(const base::CommandLine& command_line) {
++#if !defined(OS_BSD)
+   if (!breakpad::IsCrashReporterEnabled())
++#endif
+     return -1;
+ 
+   // Extensions have the same process type as renderers.
+@@ -562,7 +564,7 @@ void CefContentBrowserClient::AppendExtraCommandLineSwitches(
+     }
+   }
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   if (process_type == switches::kZygoteProcess) {
+     // Propagate the following switches to the zygone command line (along with
+     // any associated values) if present in the browser command line.
+@@ -583,7 +585,7 @@ void CefContentBrowserClient::AppendExtraCommandLineSwitches(
+         command_line->SetProgram(subprocess_path);
+     }
+   }
+-#endif  // defined(OS_LINUX)
++#endif  // defined(OS_LINUX) || defined(OS_BSD)
+ 
+   CefRefPtr<CefApp> app = CefContentClient::Get()->application();
+   if (app.get()) {
+diff --git a/libcef/browser/native/browser_platform_delegate_native_linux.cc b/libcef/browser/native/browser_platform_delegate_native_linux.cc
+index a9ab30a0..1b8609f4 100644
+--- a/libcef/browser/native/browser_platform_delegate_native_linux.cc
++++ b/libcef/browser/native/browser_platform_delegate_native_linux.cc
+@@ -8,7 +8,7 @@
+ #include "base/tracked_objects.h"
+ #undef Status
+ 
+-#include <sys/sysinfo.h>
++//#include <sys/sysinfo.h>
+ 
+ #include "libcef/browser/browser_host_impl.h"
+ #include "libcef/browser/context.h"
+@@ -29,10 +29,14 @@ namespace {
+ 
+ // Returns the number of seconds since system boot.
+ long GetSystemUptime() {
++#if !defined(OS_BSD)
+   struct sysinfo info;
+   if (sysinfo(&info) == 0)
+     return info.uptime;
+   return 0;
++#else
++  return 0;
++#endif
+ }
+ 
+ }  // namespace
+diff --git a/libcef/browser/net/chrome_scheme_handler.cc b/libcef/browser/net/chrome_scheme_handler.cc
+index 3298a3ab..f6108943 100644
+--- a/libcef/browser/net/chrome_scheme_handler.cc
++++ b/libcef/browser/net/chrome_scheme_handler.cc
+@@ -88,7 +88,7 @@ std::string GetOSType() {
+   return "Android";
+ #elif defined(OS_LINUX)
+   return "Linux";
+-#elif defined(OS_FREEBSD)
++#elif defined(OS_BSD)
+   return "FreeBSD";
+ #elif defined(OS_OPENBSD)
+   return "OpenBSD";
+diff --git a/libcef/browser/osr/render_widget_host_view_osr.h b/libcef/browser/osr/render_widget_host_view_osr.h
+index 9835f2ad..169e64d9 100644
+--- a/libcef/browser/osr/render_widget_host_view_osr.h
++++ b/libcef/browser/osr/render_widget_host_view_osr.h
+@@ -19,7 +19,7 @@
+ #include "content/browser/renderer_host/render_widget_host_view_base.h"
+ #include "ui/compositor/compositor.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "ui/base/x/x11_util.h"
+ #endif
+ 
+diff --git a/libcef/browser/printing/printing_message_filter.cc b/libcef/browser/printing/printing_message_filter.cc
+index 2bb2d5b7..897e21f6 100644
+--- a/libcef/browser/printing/printing_message_filter.cc
++++ b/libcef/browser/printing/printing_message_filter.cc
+@@ -18,7 +18,7 @@
+ #include "content/public/browser/web_contents.h"
+ #include "content/public/common/child_process_host.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "libcef/browser/printing/print_dialog_linux.h"
+ #endif
+ 
+@@ -62,7 +62,7 @@ void PrintingMessageFilter::OnIsPrintingEnabled(bool* is_enabled) {
+ 
+ void PrintingMessageFilter::OnGetDefaultPrintSettings(IPC::Message* reply_msg) {
+   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // Send notification to the client.
+   CefPrintDialogLinux::OnPrintStart(render_process_id_,
+                                     reply_msg->routing_id());
+diff --git a/libcef/browser/views/window_impl.cc b/libcef/browser/views/window_impl.cc
+index 3f58ca7b..7e0ab3e1 100644
+--- a/libcef/browser/views/window_impl.cc
++++ b/libcef/browser/views/window_impl.cc
+@@ -18,7 +18,7 @@
+ #if defined(USE_AURA)
+ #include "ui/aura/test/ui_controls_factory_aura.h"
+ #include "ui/base/test/ui_controls_aura.h"
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "ui/views/test/ui_controls_factory_desktop_aurax11.h"
+ #endif
+ #endif
+@@ -36,7 +36,7 @@ void InitializeUITesting() {
+     ui_controls::EnableUIControls();
+ 
+ #if defined(USE_AURA)
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+     ui_controls::InstallUIControlsAura(
+         views::test::CreateUIControlsDesktopAura());
+ #else
+diff --git a/libcef/browser/views/window_view.cc b/libcef/browser/views/window_view.cc
+index 1dc40e56..859da2c8 100644
+--- a/libcef/browser/views/window_view.cc
++++ b/libcef/browser/views/window_view.cc
+@@ -12,7 +12,7 @@
+ #include "ui/views/widget/widget.h"
+ #include "ui/views/window/native_frame_view.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include <X11/Xlib.h>
+ #include "ui/gfx/x/x11_types.h"
+ #endif
+@@ -277,7 +277,7 @@ void CefWindowView::CreateWidget() {
+   // |widget| must be activatable for focus handling to work correctly.
+   DCHECK(widget->widget_delegate()->CanActivate());
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   if (is_frameless_) {
+     ::Window window = view_util::GetWindowHandle(widget);
+     DCHECK(window);
+@@ -312,7 +312,7 @@ void CefWindowView::CreateWidget() {
+     XChangeProperty(display, window, mwmHintsProperty, mwmHintsProperty, 32,
+                     PropModeReplace, (unsigned char *)&hints, 5);
+   }
+-#endif  // defined(OS_LINUX)
++#endif  // defined(OS_LINUX) || defined(OS_BSD)
+ }
+ 
+ CefRefPtr<CefWindow> CefWindowView::GetCefWindow() const {
+diff --git a/libcef/common/main_delegate.cc b/libcef/common/main_delegate.cc
+index 6c66831b..1a1d55c8 100644
+--- a/libcef/common/main_delegate.cc
++++ b/libcef/common/main_delegate.cc
+@@ -70,15 +70,16 @@
+ #include "components/crash/content/app/breakpad_linux.h"
+ #endif
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "base/environment.h"
+ #include "base/nix/xdg_util.h"
+ #endif
+ 
+ namespace {
+-
++#if !defined(OS_BSD)
+ base::LazyInstance<CefCrashReporterClient>::Leaky g_crash_reporter_client =
+     LAZY_INSTANCE_INITIALIZER;
++#endif
+ 
+ #if defined(OS_MACOSX)
+ 
+@@ -198,7 +199,7 @@ void OverridePepperFlashSystemPluginPath() {
+   }
+ }
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ 
+ // Based on chrome/common/chrome_paths_linux.cc.
+ // See http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html
+@@ -522,7 +523,8 @@ void CefMainDelegate::PreSandboxStartup() {
+       base::CommandLine::ForCurrentProcess();
+   const std::string& process_type =
+       command_line->GetSwitchValueASCII(switches::kProcessType);
+-
++      
++#if !defined(OS_BSD)
+   if (command_line->HasSwitch(switches::kEnableCrashReporter)) {
+     crash_reporter::SetCrashReporterClient(g_crash_reporter_client.Pointer());
+ #if defined(OS_MACOSX)
+@@ -540,6 +542,7 @@ void CefMainDelegate::PreSandboxStartup() {
+     breakpad::InitCrashReporter(process_type);
+ #endif
+   }
++#endif
+ 
+   if (!command_line->HasSwitch(switches::kProcessType)) {
+     // Only override these paths when executing the main process.
+@@ -628,7 +631,7 @@ void CefMainDelegate::ProcessExiting(const std::string& process_type) {
+   ResourceBundle::CleanupSharedInstance();
+ }
+ 
+-#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
++#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX) && !defined(OS_BSD)
+ void CefMainDelegate::ZygoteForked() {
+   const base::CommandLine* command_line =
+       base::CommandLine::ForCurrentProcess();
+diff --git a/libcef/common/main_delegate.h b/libcef/common/main_delegate.h
+index 9742cbd1..6fdd4d0e 100644
+--- a/libcef/common/main_delegate.h
++++ b/libcef/common/main_delegate.h
+@@ -39,7 +39,7 @@ class CefMainDelegate : public content::ContentMainDelegate {
+       const std::string& process_type,
+       const content::MainFunctionParams& main_function_params) override;
+   void ProcessExiting(const std::string& process_type) override;
+-#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
++#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX) && !defined(OS_BSD)
+   void ZygoteForked() override;
+ #endif
+   content::ContentBrowserClient* CreateContentBrowserClient() override;
+diff --git a/libcef_dll/libcef.lst b/libcef_dll/libcef.lst
+index e236ea99..d0c644f0 100644
+--- a/libcef_dll/libcef.lst
++++ b/libcef_dll/libcef.lst
+@@ -5,5 +5,4 @@
+ {
+   /* Only export necessary symbols from libcef.so. */
+   global: cef_*;
+-  local: *;
+ };
+diff --git a/libcef_dll/wrapper/cef_zip_archive.cc b/libcef_dll/wrapper/cef_zip_archive.cc
+index 8be28b61..a7e0c187 100644
+--- a/libcef_dll/wrapper/cef_zip_archive.cc
++++ b/libcef_dll/wrapper/cef_zip_archive.cc
+@@ -13,7 +13,7 @@
+ #include "include/cef_zip_reader.h"
+ #include "include/wrapper/cef_byte_read_handler.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include <wctype.h>
+ #endif
+ 
+diff --git a/patch/patches/renderer_preferences_util_545103.patch b/patch/patches/renderer_preferences_util_545103.patch
+index 20a63eab..ca9ebc04 100644
+--- a/patch/patches/renderer_preferences_util_545103.patch
++++ b/patch/patches/renderer_preferences_util_545103.patch
+@@ -6,8 +6,8 @@ index 2fff3f3..86c7f0c 100644
+  #include "ui/views/controls/textfield/textfield.h"
+  #endif
+  
+--#if defined(USE_AURA) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
+-+#if defined(USE_AURA) && defined(OS_LINUX) && !defined(OS_CHROMEOS) && \
++-#if defined(USE_AURA) && (defined(OS_BSD) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
+++#if defined(USE_AURA) && (defined(OS_LINUX) || defined(OS_BSD)) && !defined(OS_CHROMEOS) && \
+ +    defined(ENABLE_THEMES)
+  #include "chrome/browser/themes/theme_service.h"
+  #include "chrome/browser/themes/theme_service_factory.h"
+@@ -16,8 +16,8 @@ index 2fff3f3..86c7f0c 100644
+    prefs->caret_blink_interval = views::Textfield::GetCaretBlinkMs() / 1000.0;
+  #endif
+  
+--#if defined(USE_AURA) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
+-+#if defined(USE_AURA) && defined(OS_LINUX) && !defined(OS_CHROMEOS) && \
++-#if defined(USE_AURA) && (defined(OS_BSD) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
+++#if defined(USE_AURA) && (defined(OS_LINUX) || defined(OS_BSD)) && !defined(OS_CHROMEOS) && \
+ +    defined(ENABLE_THEMES)
+    views::LinuxUI* linux_ui = views::LinuxUI::instance();
+    if (linux_ui) {
+diff --git a/patch/patches/views_widget_180_1481_1677_1749.patch b/patch/patches/views_widget_180_1481_1677_1749.patch
+index ae694a62..8f26da7b 100644
+--- a/patch/patches/views_widget_180_1481_1677_1749.patch
++++ b/patch/patches/views_widget_180_1481_1677_1749.patch
+@@ -6,7 +6,7 @@ index 8b16632..fb22089 100644
+      }
+    }
+  #endif
+-+#if defined(OS_LINUX)
+++#if defined(OS_LINUX) || defined(OS_BSD)
+ +  if (has_external_parent_ && CanFocus()) {
+ +    aura::WindowTreeHost* host = window_->GetHost();
+ +    if (host)
+diff --git a/tests/cefclient/browser/client_app_delegates_browser.cc b/tests/cefclient/browser/client_app_delegates_browser.cc
+index 579848e5..f7df7cab 100644
+--- a/tests/cefclient/browser/client_app_delegates_browser.cc
++++ b/tests/cefclient/browser/client_app_delegates_browser.cc
+@@ -4,7 +4,7 @@
+ 
+ #include "cefclient/browser/client_app_browser.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "cefclient/browser/print_handler_gtk.h"
+ #endif
+ 
+@@ -16,7 +16,7 @@ void ClientAppBrowser::CreateDelegates(DelegateSet& delegates) {
+ 
+ // static
+ CefRefPtr<CefPrintHandler> ClientAppBrowser::CreatePrintHandler() {
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   return new ClientPrintHandlerGtk();
+ #else
+   return NULL;
+diff --git a/tests/cefclient/browser/client_handler.cc b/tests/cefclient/browser/client_handler.cc
+index 71b77f9d..bfaa691b 100644
+--- a/tests/cefclient/browser/client_handler.cc
++++ b/tests/cefclient/browser/client_handler.cc
+@@ -168,7 +168,7 @@ ClientHandler::ClientHandler(Delegate* delegate,
+     focus_on_editable_field_(false) {
+   DCHECK(!console_log_file_.empty());
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // Provide the GTK-based dialog implementation on Linux.
+   dialog_handler_ = new ClientDialogHandlerGtk();
+ #endif
+diff --git a/tests/cefclient/browser/client_handler.h b/tests/cefclient/browser/client_handler.h
+index a1c79562..8a541544 100644
+--- a/tests/cefclient/browser/client_handler.h
++++ b/tests/cefclient/browser/client_handler.h
+@@ -15,7 +15,7 @@
+ #include "include/wrapper/cef_resource_manager.h"
+ #include "cefclient/browser/client_types.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include "cefclient/browser/dialog_handler_gtk.h"
+ #endif
+ 
+@@ -118,7 +118,7 @@ class ClientHandler : public CefClient,
+                                 CefProcessId source_process,
+                                 CefRefPtr<CefProcessMessage> message) OVERRIDE;
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   CefRefPtr<CefDialogHandler> GetDialogHandler() OVERRIDE {
+     return dialog_handler_;
+   }
+@@ -330,7 +330,7 @@ class ClientHandler : public CefClient,
+   // True if Favicon images should be downloaded.
+   bool download_favicon_images_;
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // Custom dialog handler for GTK.
+   CefRefPtr<ClientDialogHandlerGtk> dialog_handler_;
+ #endif
+diff --git a/tests/cefclient/browser/client_types.h b/tests/cefclient/browser/client_types.h
+index f228f4e8..da926d96 100644
+--- a/tests/cefclient/browser/client_types.h
++++ b/tests/cefclient/browser/client_types.h
+@@ -8,7 +8,7 @@
+ 
+ #include "include/cef_base.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include <gtk/gtk.h>
+ 
+ // The Linux client uses GTK instead of the underlying platform type (X11).
+diff --git a/tests/cefclient/browser/main_context_impl.cc b/tests/cefclient/browser/main_context_impl.cc
+index b40cbc9f..dccc9b79 100644
+--- a/tests/cefclient/browser/main_context_impl.cc
++++ b/tests/cefclient/browser/main_context_impl.cc
+@@ -63,7 +63,7 @@ MainContextImpl::MainContextImpl(CefRefPtr<CefCommandLine> command_line,
+   use_windowless_rendering_ =
+       command_line_->HasSwitch(switches::kOffScreenRenderingEnabled);
+ 
+-#if defined(OS_WIN) || defined(OS_LINUX)
++#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_BSD)
+   // Whether the Views framework will be used.
+   use_views_ = command_line_->HasSwitch(switches::kUseViews);
+ 
+@@ -78,7 +78,7 @@ MainContextImpl::MainContextImpl(CefRefPtr<CefCommandLine> command_line,
+     // Use the draggable regions test as the default URL for frameless windows.
+     main_url_ = "http://tests/draggable";
+   }
+-#endif  // defined(OS_WIN) || defined(OS_LINUX)
++#endif  // defined(OS_WIN) || defined(OS_LINUX) || defined(OS_BSD)
+ }
+ 
+ MainContextImpl::~MainContextImpl() {
+diff --git a/tests/cefclient/browser/osr_renderer.cc b/tests/cefclient/browser/osr_renderer.cc
+index 35f51543..75eade60 100644
+--- a/tests/cefclient/browser/osr_renderer.cc
++++ b/tests/cefclient/browser/osr_renderer.cc
+@@ -8,7 +8,7 @@
+ #include <gl/gl.h>
+ #elif defined(OS_MACOSX)
+ #include <OpenGL/gl.h>
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ #include <GL/gl.h>
+ #else
+ #error Platform is not supported.
+@@ -171,7 +171,7 @@ void OsrRenderer::Render() {
+     int top = update_rect_.y;
+     int bottom = update_rect_.y + update_rect_.height;
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+     // Shrink the box so that top & right sides are drawn.
+     top += 1;
+     right -= 1;
+diff --git a/tests/cefclient/browser/resource_util_linux.cc b/tests/cefclient/browser/resource_util_linux.cc
+index 04dd14de..1b5bc0e1 100644
+--- a/tests/cefclient/browser/resource_util_linux.cc
++++ b/tests/cefclient/browser/resource_util_linux.cc
+@@ -8,6 +8,10 @@
+ #include <stdio.h>
+ #include <string.h>
+ #include <unistd.h>
++#if defined(__FreeBSD__)
++#include <sys/types.h>
++#include <sys/sysctl.h>
++#endif
+ 
+ namespace client {
+ 
+@@ -15,7 +19,22 @@ bool GetResourceDir(std::string& dir) {
+   char buff[1024];
+ 
+   // Retrieve the executable path.
++#if defined(__FreeBSD__)
++  int mib[4];
++  int len = -1;
++  mib[0] = CTL_KERN;
++  mib[1] = KERN_PROC;
++  mib[2] = KERN_PROC_PATHNAME;
++  mib[3] = -1;
++  size_t cb = sizeof(buff);
++    
++  if (sysctl(mib, 4, buff, &cb, NULL, 0) == -1) {
++      len = -1;
++  } else
++    len = strlen(buff);
++#else
+   ssize_t len = readlink("/proc/self/exe", buff, sizeof(buff)-1);
++#endif
+   if (len == -1)
+     return false;
+ 
+diff --git a/tests/cefclient/browser/root_window_create.cc b/tests/cefclient/browser/root_window_create.cc
+index 84f3efd6..60b9aa28 100644
+--- a/tests/cefclient/browser/root_window_create.cc
++++ b/tests/cefclient/browser/root_window_create.cc
+@@ -4,13 +4,13 @@
+ 
+ #include "cefclient/browser/root_window.h"
+ 
+-#if defined(OS_WIN) || defined(OS_LINUX)
++#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_BSD)
+ #include "cefclient/browser/root_window_views.h"
+ #endif
+ 
+ #if defined(OS_WIN)
+ #include "cefclient/browser/root_window_win.h"
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ #include "cefclient/browser/root_window_gtk.h"
+ #elif defined(OS_MACOSX)
+ #include "cefclient/browser/root_window_mac.h"
+@@ -21,7 +21,7 @@ namespace client {
+ // static
+ scoped_refptr<RootWindow> RootWindow::Create(bool use_views) {
+   if (use_views) {
+-#if defined(OS_WIN) || defined(OS_LINUX)
++#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_BSD)
+     return new RootWindowViews();
+ #else
+     LOG(FATAL) << "Views framework is not supported on this platform.";
+@@ -30,7 +30,7 @@ scoped_refptr<RootWindow> RootWindow::Create(bool use_views) {
+ 
+ #if defined(OS_WIN)
+   return new RootWindowWin();
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+   return new RootWindowGtk();
+ #elif defined(OS_MACOSX)
+   return new RootWindowMac();
+diff --git a/tests/cefclient/browser/root_window_views.cc b/tests/cefclient/browser/root_window_views.cc
+index 262432fb..029a22cd 100644
+--- a/tests/cefclient/browser/root_window_views.cc
++++ b/tests/cefclient/browser/root_window_views.cc
+@@ -157,7 +157,7 @@ CefRefPtr<CefBrowser> RootWindowViews::GetBrowser() const {
+ 
+ ClientWindowHandle RootWindowViews::GetWindowHandle() const {
+   REQUIRE_MAIN_THREAD();
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // ClientWindowHandle is a GtkWidget* on Linux and we don't have one of those.
+   return NULL;
+ #else
+diff --git a/tests/cefclient/browser/temp_window.h b/tests/cefclient/browser/temp_window.h
+index 1e9f038e..07978ecb 100644
+--- a/tests/cefclient/browser/temp_window.h
++++ b/tests/cefclient/browser/temp_window.h
+@@ -10,7 +10,7 @@
+ 
+ #if defined(OS_WIN)
+ #include "cefclient/browser/temp_window_win.h"
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ #include "cefclient/browser/temp_window_x11.h"
+ #elif defined(OS_MACOSX)
+ #include "cefclient/browser/temp_window_mac.h"
+@@ -20,7 +20,7 @@ namespace client {
+ 
+ #if defined(OS_WIN)
+ typedef TempWindowWin TempWindow;
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ typedef TempWindowX11 TempWindow;
+ #elif defined(OS_MACOSX)
+ typedef TempWindowMac TempWindow;
+diff --git a/tests/cefclient/browser/window_test.cc b/tests/cefclient/browser/window_test.cc
+index bdac555e..b5869bcb 100644
+--- a/tests/cefclient/browser/window_test.cc
++++ b/tests/cefclient/browser/window_test.cc
+@@ -14,13 +14,13 @@
+ #include "cefclient/browser/main_context.h"
+ #include "cefclient/browser/window_test_runner.h"
+ 
+-#if defined(OS_WIN) || defined(OS_LINUX)
++#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_BSD)
+ #include "cefclient/browser/window_test_runner_views.h"
+ #endif
+ 
+ #if defined(OS_WIN)
+ #include "cefclient/browser/window_test_runner_win.h"
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ #include "cefclient/browser/window_test_runner_gtk.h"
+ #elif defined(OS_MACOSX)
+ #include "cefclient/browser/window_test_runner_mac.h"
+@@ -39,14 +39,14 @@ const char kMessageRestoreName[] = "WindowTest.Restore";
+ 
+ // Create the appropriate platform test runner object.
+ scoped_ptr<WindowTestRunner> CreateWindowTestRunner() {
+-#if defined(OS_WIN) || defined(OS_LINUX)
++#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_BSD)
+   if (MainContext::Get()->UseViews())
+     return scoped_ptr<WindowTestRunner>(new WindowTestRunnerViews());
+ #endif
+ 
+ #if defined(OS_WIN)
+   return scoped_ptr<WindowTestRunner>(new WindowTestRunnerWin());
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+   return scoped_ptr<WindowTestRunner>(new WindowTestRunnerGtk());
+ #elif defined(OS_MACOSX)
+   return scoped_ptr<WindowTestRunner>(new WindowTestRunnerMac());
+diff --git a/tests/cefsimple/simple_app.cc b/tests/cefsimple/simple_app.cc
+index 009c22a7..8f663843 100644
+--- a/tests/cefsimple/simple_app.cc
++++ b/tests/cefsimple/simple_app.cc
+@@ -62,7 +62,7 @@ void SimpleApp::OnContextInitialized() {
+   CefRefPtr<CefCommandLine> command_line =
+       CefCommandLine::GetGlobalCommandLine();
+ 
+-#if defined(OS_WIN) || defined(OS_LINUX)
++#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_BSD)
+   // Create the browser using the Views framework if "--use-views" is specified
+   // via the command-line. Otherwise, create the browser using the native
+   // platform framework. The Views framework is currently only supported on
+diff --git a/tests/unittests/os_rendering_unittest.cc b/tests/unittests/os_rendering_unittest.cc
+index 8f4a622b..4c646f34 100644
+--- a/tests/unittests/os_rendering_unittest.cc
++++ b/tests/unittests/os_rendering_unittest.cc
+@@ -17,7 +17,7 @@
+ 
+ #if defined(OS_MACOSX)
+ #include "tests/unittests/os_rendering_unittest_mac.h"
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ #include <X11/keysym.h>
+ #elif defined(OS_WIN)
+ // Required for resource_util_win, which uses this as an extern
+@@ -36,7 +36,7 @@ const int kOsrWidth = 600;
+ const int kOsrHeight = 400;
+ 
+ // precomputed bounding client rects for html elements (h1 and li).
+-#if defined(OS_WIN) || defined(OS_LINUX)
++#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_BSD)
+ const CefRect kExpectedRectLI[] = {
+   CefRect(8, 8, 567, 74),    // LI00
+   CefRect(27, 103, 548, 20),  // LI01
+@@ -85,7 +85,7 @@ const CefRect kSelectRect(461, 21, 87, 26);
+ const CefRect kExpandedSelectRect(463, 42, 78, 286);
+ const CefRect kDropDivRect(9, 330, 52, 52);
+ const CefRect kDragDivRect(60, 330, 52, 52);
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+ const CefRect kEditBoxRect(434, 246, 60, 20);
+ const CefRect kNavigateButtonRect(380, 271, 140, 22);
+ const CefRect kSelectRect(467, 22, 75, 20);
+@@ -101,7 +101,7 @@ const int kVerticalScrollbarWidth = 14;
+ // word to be written into edit box
+ const char kKeyTestWord[] = "done";
+ 
+-#if defined(OS_MACOSX) || defined(OS_LINUX)
++#if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_BSD)
+ const ui::KeyboardCode kKeyTestCodes[] = {
+   ui::VKEY_D,
+   ui::VKEY_O,
+@@ -109,7 +109,7 @@ const ui::KeyboardCode kKeyTestCodes[] = {
+   ui::VKEY_E
+ };
+ #endif
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ const unsigned int kNativeKeyTestCodes[] = {
+   XK_d,
+   XK_o,
+@@ -575,7 +575,7 @@ class OSRTestHandler : public RoutingTestHandler,
+             SendKeyEvent(browser, kKeyTestWord[i]);
+ #elif defined(OS_MACOSX)
+             SendKeyEvent(browser, kKeyTestCodes[i]);
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+             SendKeyEvent(browser, kNativeKeyTestCodes[i], kKeyTestCodes[i]);
+ #else
+ #error "Unsupported platform"
+@@ -661,7 +661,7 @@ class OSRTestHandler : public RoutingTestHandler,
+           SendKeyEvent(browser, VK_ESCAPE);
+ #elif defined(OS_MACOSX)
+           SendKeyEvent(browser, ui::VKEY_ESCAPE);
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+           SendKeyEvent(browser, XK_Escape, ui::VKEY_ESCAPE);
+ #else
+ #error "Unsupported platform"
+@@ -688,7 +688,7 @@ class OSRTestHandler : public RoutingTestHandler,
+           // first pixel of border
+ #if defined(OS_MACOSX)
+           EXPECT_EQ(0xff5d99d6, *(reinterpret_cast<const uint32*>(buffer)));
+-#elif defined(OS_LINUX) || defined(OS_WIN)
++#elif defined(OS_LINUX) || defined(OS_BSD) || defined(OS_WIN)
+           if (scale_factor_ == 1.0f)
+             EXPECT_EQ(0xff6497ea, *(reinterpret_cast<const uint32*>(buffer)));
+           else if (scale_factor_ == 2.0f)
+@@ -887,7 +887,7 @@ class OSRTestHandler : public RoutingTestHandler,
+       windowInfo.SetAsWindowless(osr_unittests::GetFakeView(), transparent);
+     else
+       windowInfo.SetAsWindowless(kNullWindowHandle, transparent);
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+     windowInfo.SetAsWindowless(kNullWindowHandle, transparent);
+ #else
+ #error "Unsupported platform"
+@@ -911,7 +911,7 @@ class OSRTestHandler : public RoutingTestHandler,
+ 
+   CefRect GetExpectedRect(int index) {
+     CefRect rect = kExpectedRectLI[index];
+-#if defined(OS_WIN) || defined(OS_LINUX)
++#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_BSD)
+      // Adjust the rect to include system vertical scrollbar width.
+     rect.width += kDefaultVerticalScrollbarWidth - kVerticalScrollbarWidth;
+ #elif !defined(OS_MACOSX)
+@@ -978,7 +978,7 @@ class OSRTestHandler : public RoutingTestHandler,
+   }
+ 
+   void SendKeyEvent(CefRefPtr<CefBrowser> browser,
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+                     unsigned int native_key_code,
+ #endif
+                     int key_code) {
+@@ -995,7 +995,7 @@ class OSRTestHandler : public RoutingTestHandler,
+ #elif defined(OS_MACOSX)
+     osr_unittests::GetKeyEvent(
+         event, static_cast<ui::KeyboardCode>(key_code), 0);
+-#elif defined(OS_LINUX)
++#elif defined(OS_LINUX) || defined(OS_BSD)
+     event.native_key_code = native_key_code;
+     event.windows_key_code = key_code;
+     event.character = event.unmodified_character = native_key_code;
+diff --git a/tests/unittests/plugin_unittest.cc b/tests/unittests/plugin_unittest.cc
+index e7774fba..0d6f04ab 100644
+--- a/tests/unittests/plugin_unittest.cc
++++ b/tests/unittests/plugin_unittest.cc
+@@ -47,7 +47,7 @@ const char kPdfDirectUrl[] = "http://tests/pdf.pdf";
+ const int64 kPlaceholderLoadDelayMs = 1000;
+ 
+ // Delay waiting for iframe tests to load the PDF file.
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ const int64 kPdfLoadDelayMs = 7000;
+ #else
+ const int64 kPdfLoadDelayMs = 5000;
+diff --git a/tests/unittests/run_all_unittests.cc b/tests/unittests/run_all_unittests.cc
+index 09a325c1..8f695c8a 100644
+--- a/tests/unittests/run_all_unittests.cc
++++ b/tests/unittests/run_all_unittests.cc
+@@ -4,7 +4,7 @@
+ 
+ #include "include/base/cef_build.h"
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ #include <X11/Xlib.h>
+ // Definitions conflict with gtest.
+ #undef None
+@@ -64,7 +64,7 @@ void RunTests(CefTestThread* thread) {
+       base::Bind(&CefTestThread::RunTests, base::Unretained(thread)));
+ }
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+ int XErrorHandlerImpl(Display *display, XErrorEvent *event) {
+   LOG(WARNING)
+         << "X error received: "
+@@ -79,13 +79,13 @@ int XErrorHandlerImpl(Display *display, XErrorEvent *event) {
+ int XIOErrorHandlerImpl(Display *display) {
+   return 0;
+ }
+-#endif  // defined(OS_LINUX)
++#endif  // defined(OS_LINUX) || defined(OS_BSD)
+ 
+ }  // namespace
+ 
+ 
+ int main(int argc, char* argv[]) {
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // Create a copy of |argv| on Linux because Chromium mangles the value
+   // internally (see issue #620).
+   CefScopedArgArray scoped_arg_array(argc, argv);
+@@ -151,7 +151,7 @@ int main(int argc, char* argv[]) {
+   PlatformInit();
+ #endif
+ 
+-#if defined(OS_LINUX)
++#if defined(OS_LINUX) || defined(OS_BSD)
+   // Install xlib error handlers so that the application won't be terminated
+   // on non-fatal errors.
+   XSetErrorHandler(XErrorHandlerImpl);
+diff --git a/tools/make_distrib.py b/tools/make_distrib.py
+index 8ce48729..ef4f03dd 100644
+--- a/tools/make_distrib.py
++++ b/tools/make_distrib.py
+@@ -81,11 +81,13 @@ def get_readme_component(name):
+     platform_cmp = 'mac'
+   elif platform == 'linux':
+     platform_cmp = 'linux'
++  elif platform == 'freebsd':
++    platform_cmp = 'freebsd'
+   paths.append(os.path.join(script_dir, 'distrib', platform_cmp))
+-
++  
+   # shared directory
+   paths.append(os.path.join(script_dir, 'distrib'))
+-
++  print(paths);
+   # load the file if it exists
+   for path in paths:
+     file = os.path.join(path, 'README.' +name + '.txt')
+@@ -118,6 +120,8 @@ def create_readme():
+     platform_str = 'Mac OS-X'
+   elif platform == 'linux':
+     platform_str = 'Linux'
++  elif platform == 'freebsd':
++    platform_str = 'FreeBSD'
+ 
+   data = data.replace('$PLATFORM$', platform_str)
+ 
+@@ -133,7 +137,7 @@ def create_readme():
+                    'the LICENSING section of this document for licensing terms and conditions.'
+   elif mode == 'client':
+     distrib_type = 'Client'
+-    if platform == 'linux':
++    if platform == 'linux' or platform == 'freebsd':
+       client_app = 'cefsimple'
+     else:
+       client_app = 'cefclient'
+@@ -281,7 +285,8 @@ elif sys.platform == 'darwin':
+   platform = 'macosx'
+ elif sys.platform.startswith('linux'):
+   platform = 'linux'
+-
++elif sys.platform.startswith('freebsd'):
++  platform = 'freebsd'
+ # the outputdir option is required
+ if options.outputdir is None:
+   parser.print_help(sys.stderr)
+@@ -313,8 +318,8 @@ cef_url = git.get_url(cef_dir)
+ cef_rev = git.get_hash(cef_dir)
+ cef_commit_number = git.get_commit_number(cef_dir)
+ 
+-if not git.is_checkout(src_dir):
+-  raise Exception('Not a valid checkout: %s' % (src_dir))
++#if not git.is_checkout(src_dir):
++#  raise Exception('Not a valid checkout: %s' % (src_dir))
+ 
+ # retrieve information for Chromium
+ chromium_url = git.get_url(src_dir)
+@@ -337,7 +342,7 @@ platform_arch = '32'
+ if options.x64build:
+   platform_arch = '64'
+ 
+-if platform == 'linux':
++if platform == 'linux' or platform == 'freebsd':
+   platform_arch = ''
+   lib_dir_name = 'lib'
+   release_libcef_path = os.path.join(src_dir, 'out', 'Release', lib_dir_name, 'libcef.so');
+@@ -673,13 +678,13 @@ elif platform == 'macosx':
+     copy_dir(os.path.join(cef_dir, 'tests/cefsimple/mac/'), os.path.join(output_dir, 'cefsimple/mac/'), \
+              options.quiet)
+ 
+-elif platform == 'linux':
++elif platform == 'linux' or platform == 'freebsd':
+   out_dir = os.path.join(src_dir, 'out')
+   lib_dir_name = 'lib'
+ 
+   valid_build_dir = None
+ 
+-  if mode == 'standard':
++  if mode == 'standard' and platform == 'linux':
+     # transfer Debug files
+     build_dir = os.path.join(out_dir, 'Debug');
+     libcef_path = os.path.join(build_dir, lib_dir_name, 'libcef.so')
+@@ -709,7 +714,8 @@ elif platform == 'linux':
+       copy_file(os.path.join(build_dir, 'cefsimple'), dst_dir, options.quiet)
+     else:
+       copy_file(libcef_path, dst_dir, options.quiet)
+-    copy_file(os.path.join(build_dir, 'chrome_sandbox'), os.path.join(dst_dir, 'chrome-sandbox'), options.quiet)
++    if platform == 'linux':
++      copy_file(os.path.join(build_dir, 'chrome_sandbox'), os.path.join(dst_dir, 'chrome-sandbox'), options.quiet)
+     copy_file(os.path.join(build_dir, 'natives_blob.bin'), dst_dir, options.quiet)
+     copy_file(os.path.join(build_dir, 'snapshot_blob.bin'), dst_dir, options.quiet)
+   else:
+@@ -733,13 +739,19 @@ elif platform == 'linux':
+ 
+   if mode == 'standard' or mode == 'minimal':
+     # transfer include files
+-    transfer_gypi_files(cef_dir, cef_paths2['includes_linux'], \
++    if platform == 'linux':
++      transfer_gypi_files(cef_dir, cef_paths2['includes_linux'], \
++                        'include/', include_dir, options.quiet)
++    else:
++      transfer_gypi_files(cef_dir, cef_paths2['includes_linux'], \
+                         'include/', include_dir, options.quiet)
+-
+     # transfer additional files, if any
+-    transfer_files(cef_dir, script_dir, os.path.join(script_dir, 'distrib', 'linux'), \
++    if platform == 'linux':
++      transfer_files(cef_dir, script_dir, os.path.join(script_dir, 'distrib', 'linux'), \
++                   mode, output_dir, options.quiet)
++    else:
++      transfer_files(cef_dir, script_dir, os.path.join(script_dir, 'distrib', 'linux'), \
+                    mode, output_dir, options.quiet)
+-
+   if mode == 'standard':
+     # transfer cefclient files
+     transfer_gypi_files(cef_dir, cef_paths2['cefclient_sources_linux'], \
+diff --git a/tools/make_version_header.py b/tools/make_version_header.py
+index a261713a..c98e52be 100644
+--- a/tools/make_version_header.py
++++ b/tools/make_version_header.py
+@@ -132,7 +132,7 @@ def write_version_header(header, chrome_version, cef_version, cpp_header_dir):
+                   '#define CEF_API_HASH_PLATFORM "' + api_hashes['windows'] + '"\n'+\
+                   '#elif defined(OS_MACOSX)\n'+\
+                   '#define CEF_API_HASH_PLATFORM "' + api_hashes['macosx'] + '"\n'+\
+-                  '#elif defined(OS_LINUX)\n'+\
++                  '#elif defined(OS_LINUX) || defined(OS_BSD)\n'+\
+                   '#define CEF_API_HASH_PLATFORM "' + api_hashes['linux'] + '"\n'+\
+                   '#endif\n\n'+\
+                   '// Returns CEF version information for the libcef library. The |entry|\n'+\
